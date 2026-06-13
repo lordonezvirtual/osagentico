@@ -1,8 +1,10 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.api.v1.agent import router as agent_router
@@ -120,3 +122,7 @@ async def health_check():
         "db_mode": settings.DB_MODE,
         "ollama_endpoint": settings.OLLAMA_URL
     }
+
+# Mount static files to serve the frontend
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+app.mount("/", StaticFiles(directory=base_dir, html=True), name="static")
