@@ -1754,8 +1754,23 @@ const nodeServices = [
   }
 ];
 
-function setupNodeServices() {
+async function setupNodeServices() {
+  try {
+    const response = await fetch('/api/v1/services');
+    if (response.ok) {
+      const services = await response.json();
+      services.forEach(s => {
+        const localSrv = nodeServices.find(ls => ls.id === s.id);
+        if (localSrv) {
+          localSrv.status = s.status === 'active' ? 'online' : 'offline';
+        }
+      });
+    }
+  } catch (e) {
+    console.error("Failed to load backend services, falling back to local simulation:", e);
+  }
   renderNodeServices();
+  setupGlobalServiceButtons();
 }
 
 function renderNodeServices() {
@@ -1770,7 +1785,6 @@ function renderNodeServices() {
     card.className = `node-service-card ${isRunning ? 'running' : ''}`;
     card.id = `srv-card-${srv.id}`;
     
-    // Apply dynamic inline colors for running services
     if (isRunning) {
       card.style.borderColor = srv.color;
       card.style.boxShadow = `0 8px 24px rgba(0, 0, 0, 0.45), 0 0 15px ${srv.bgColor}`;
@@ -1824,32 +1838,98 @@ function renderNodeServices() {
 function setupNodeToggleButtons() {
   const btns = document.querySelectorAll('.btn-node-action');
   btns.forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const id = btn.getAttribute('data-id');
       const srv = nodeServices.find(s => s.id === id);
       if (!srv) return;
       
       const isOnline = srv.status === 'online';
+      btn.disabled = true;
       
       if (isOnline) {
-        srv.status = 'offline';
         showToast(`Deteniendo instancia de <strong>${srv.name}</strong>...`, 'warning');
-        setTimeout(() => {
-          showToast(`Instancia <strong>${srv.name}</strong> apagada correctamente.`, 'info');
-          renderNodeServices();
-          updateCoreActiveToolsMetric();
-        }, 1200);
+        try {
+          const resp = await fetch(`/api/v1/services/${id}/shutdown`, { method: 'POST' });
+          if (resp.ok) {
+            srv.status = 'offline';
+            showToast(`Instancia <strong>${srv.name}</strong> apagada correctamente.`, 'info');
+          } else {
+            showToast(`Error al apagar <strong>${srv.name}</strong>.`, 'error');
+          }
+        } catch (e) {
+          srv.status = 'offline';
+          showToast(`Instancia <strong>${srv.name}</strong> apagada (Simulado).`, 'info');
+        }
       } else {
-        srv.status = 'online';
         showToast(`Desplegando nodo de <strong>${srv.name}</strong> en puerto ${srv.port}...`, 'info');
-        setTimeout(() => {
-          showToast(`Nodo <strong>${srv.name}</strong> desplegado y activo.`, 'success');
-          renderNodeServices();
-          updateCoreActiveToolsMetric();
-        }, 1500);
+        try {
+          const resp = await fetch(`/api/v1/services/${id}/deploy`, { method: 'POST' });
+          if (resp.ok) {
+            srv.status = 'online';
+            showToast(`Nodo <strong>${srv.name}</strong> desplegado y activo.`, 'success');
+          } else {
+            showToast(`Error al desplegar <strong>${srv.name}</strong>.`, 'error');
+          }
+        } catch (e) {
+          srv.status = 'online';
+          showToast(`Nodo <strong>${srv.name}</strong> desplegado (Simulado).`, 'success');
+        }
       }
+      
+      btn.disabled = false;
+      renderNodeServices();
+      updateCoreActiveToolsMetric();
     });
   });
+}
+
+function setupGlobalServiceButtons() {
+  const btnDeployAll = document.getElementById('btn-deploy-all-services');
+  const btnShutdownAll = document.getElementById('btn-shutdown-all-services');
+  
+  if (btnDeployAll) {
+    const newBtnDeployAll = btnDeployAll.cloneNode(true);
+    btnDeployAll.parentNode.replaceChild(newBtnDeployAll, btnDeployAll);
+    newBtnDeployAll.addEventListener('click', async () => {
+      showToast('Iniciando despliegue de <strong>todos</strong> los servicios...', 'info');
+      try {
+        const resp = await fetch('/api/v1/services/deploy-all', { method: 'POST' });
+        if (resp.ok) {
+          nodeServices.forEach(s => s.status = 'online');
+          showToast('Todos los servicios desplegados correctamente.', 'success');
+        } else {
+          showToast('Error en el despliegue global de servicios.', 'error');
+        }
+      } catch (e) {
+        nodeServices.forEach(s => s.status = 'online');
+        showToast('Todos los servicios encendidos (Simulado).', 'success');
+      }
+      renderNodeServices();
+      updateCoreActiveToolsMetric();
+    });
+  }
+  
+  if (btnShutdownAll) {
+    const newBtnShutdownAll = btnShutdownAll.cloneNode(true);
+    btnShutdownAll.parentNode.replaceChild(newBtnShutdownAll, btnShutdownAll);
+    newBtnShutdownAll.addEventListener('click', async () => {
+      showToast('Deteniendo <strong>todos</strong> los servicios...', 'warning');
+      try {
+        const resp = await fetch('/api/v1/services/shutdown-all', { method: 'POST' });
+        if (resp.ok) {
+          nodeServices.forEach(s => s.status = 'offline');
+          showToast('Todos los servicios apagados correctamente.', 'info');
+        } else {
+          showToast('Error al apagar todos los servicios.', 'error');
+        }
+      } catch (e) {
+        nodeServices.forEach(s => s.status = 'offline');
+        showToast('Todos los servicios apagados (Simulado).', 'info');
+      }
+      renderNodeServices();
+      updateCoreActiveToolsMetric();
+    });
+  }
 }
 
 function updateCoreActiveToolsMetric() {

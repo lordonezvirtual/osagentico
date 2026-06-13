@@ -12,7 +12,14 @@ SERVICE_MAPPING = {
     "hermes-desktop": "hermes-desktop",
     "hermes-workspace": "hermes-workspace",
     "n8n": "n8n",
-    "openclaw": "openclaw"
+    "openclaw": "openclaw",
+    "crewai": "crewai",
+    "autogpt": "autogpt",
+    "langflow": "langflow",
+    "autogen": "autogen",
+    "langgraph": "langgraph",
+    "devika": "devika",
+    "chatdev": "chatdev"
 }
 
 # Service details metadata
@@ -41,6 +48,41 @@ SERVICE_METADATA = {
         "name": "openclaw",
         "description": "Framework ligero y orquestador modular de agentes.",
         "port": 8080
+    },
+    "crewai": {
+        "name": "CrewAI Framework",
+        "description": "Orquestador de equipos de agentes AI colaborativos con roles definidos.",
+        "port": 8010
+    },
+    "autogpt": {
+        "name": "AutoGPT Node",
+        "description": "Agente autónomo de bucle continuo para resolución de objetivos complejos.",
+        "port": 8012
+    },
+    "langflow": {
+        "name": "Langflow UI",
+        "description": "Constructor visual de flujos de trabajo e interfaces gráficas RAG.",
+        "port": 7860
+    },
+    "autogen": {
+        "name": "Microsoft AutoGen",
+        "description": "Framework multi-agente para configurar flujos conversacionales de resolución de tareas.",
+        "port": 8015
+    },
+    "langgraph": {
+        "name": "LangGraph Nodes",
+        "description": "Orquestación cíclica y persistente de agentes complejos basada en grafos.",
+        "port": 8016
+    },
+    "devika": {
+        "name": "Devika Agent",
+        "description": "Asistente de codificación y desarrollo de software autónomo open-source.",
+        "port": 8018
+    },
+    "chatdev": {
+        "name": "ChatDev Virtual",
+        "description": "Entorno virtual simulado para creación cooperativa de software mediante agentes.",
+        "port": 8020
     }
 }
 
@@ -52,7 +94,14 @@ class ServiceManager:
             "hermes-desktop": "active",  # Seed matching user's screenshot
             "hermes-workspace": "inactive",
             "n8n": "inactive",
-            "openclaw": "inactive"
+            "openclaw": "inactive",
+            "crewai": "inactive",
+            "autogpt": "inactive",
+            "langflow": "inactive",
+            "autogen": "inactive",
+            "langgraph": "inactive",
+            "devika": "inactive",
+            "chatdev": "inactive"
         }
         self.docker_available = shutil.which("docker") is not None
 

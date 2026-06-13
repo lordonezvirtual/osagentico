@@ -131,7 +131,7 @@ def test_service_manager():
     response = client.get("/api/v1/services")
     assert response.status_code == 200
     services = response.json()
-    assert len(services) == 5
+    assert len(services) == 12
     
     # Assert initial states (desktop is active by default in fallback, others inactive)
     desktop = next(s for s in services if s["id"] == "hermes-desktop")
