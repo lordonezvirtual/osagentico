@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  agent-os-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/workspace/data
+      # Mount sqlite database locally so state persists across compose runs
+      - ./agent_os_local.db:/workspace/agent_os_local.db
+    environment:
+      - DB_MODE=postgres
+      - OLLAMA_URL=http://ollama:11434
+      - DEFAULT_MODEL=gemma:2b
+      - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/agent_os
+    depends_on:
+      - ollama
+      - postgres
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=agent_os
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  hermes-desktop:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "8082:80"
+    volumes:
+      - ./data/desktop:/usr/share/nginx/html
+
+  hermes-workspace:
+    image: codercom/code-server:latest
+    restart: always
+    ports:
+      - "8083:8080"
+    environment:
+      - PASSWORD=hermespass
+    volumes:
+      - ./data/workspace:/home/coder/project
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: always
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  openclaw:
+    image: python:3.11-alpine
+    restart: always
+    ports:
+      - "8080:8080"
+    command: python -m http.server 8080
+    volumes:
+      - ./data/openclaw:/workspace
+    working_dir: /workspace
+
+volumes:
+  ollama_data:
+  postgres_data:
+  n8n_data:

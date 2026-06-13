@@ -1,0 +1,16 @@
+{
+  "name": "hermes-agent-dashboard",
+  "version": "1.0.0",
+  "description": "Advanced AI Agent Operating System Dashboard",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx -y serve ."
+  },
+  "keywords": [
+    "ai",
+    "dashboard",
+    "hermes"
+  ],
+  "author": "Antigravity",
+  "license": "ISC"
+}
