@@ -24,7 +24,7 @@ async def list_services(
     Lists the status of all managed services (Desktop, Workspace, Agent, n8n, etc.).
     """
     try:
-        return manager.list_services()
+        return await manager.list_services()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query service statuses: {str(e)}")
 
@@ -36,7 +36,7 @@ async def deploy_service(
     """
     Deploys (starts) a specific service by name.
     """
-    res = manager.deploy_service(service_name)
+    res = await manager.deploy_service(service_name)
     if not res["success"]:
         raise HTTPException(status_code=400, detail=res["message"])
     return res
@@ -49,7 +49,7 @@ async def shutdown_service(
     """
     Shuts down (stops) a specific service by name.
     """
-    res = manager.shutdown_service(service_name)
+    res = await manager.shutdown_service(service_name)
     if not res["success"]:
         raise HTTPException(status_code=400, detail=res["message"])
     return res
@@ -61,7 +61,7 @@ async def deploy_all_services(
     """
     Global start action: Starts all docker compose services (Prender Todo).
     """
-    return manager.deploy_all()
+    return await manager.deploy_all()
 
 @router.post("/shutdown-all", response_model=ActionResponse)
 async def shutdown_all_services(
@@ -70,4 +70,4 @@ async def shutdown_all_services(
     """
     Global stop action: Stops all docker compose services (Apagar Todo).
     """
-    return manager.shutdown_all()
+    return await manager.shutdown_all()

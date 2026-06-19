@@ -833,7 +833,13 @@ function setupModals() {
     btn.addEventListener('click', () => {
       const modalId = btn.getAttribute('data-close-modal');
       const modal = document.getElementById(modalId);
-      if (modal) modal.classList.remove('active');
+      if (modal) {
+        modal.classList.remove('active');
+        if (modalId === 'modal-service-visualizer') {
+          const iframe = document.getElementById('service-visualizer-iframe');
+          if (iframe) iframe.src = 'about:blank';
+        }
+      }
     });
   });
   
@@ -842,6 +848,10 @@ function setupModals() {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
         overlay.classList.remove('active');
+        if (overlay.id === 'modal-service-visualizer') {
+          const iframe = document.getElementById('service-visualizer-iframe');
+          if (iframe) iframe.src = 'about:blank';
+        }
       }
     });
   });
@@ -1670,7 +1680,7 @@ const nodeServices = [
     description: 'Agente desarrollador autónomo que escribe código y ejecuta comandos en sandbox.',
     status: 'offline',
     icon: 'openclaw',
-    port: '3000',
+    port: '8080',
     color: '#00e5ff',
     bgColor: 'rgba(0, 229, 255, 0.08)',
     borderColor: 'rgba(0, 229, 255, 0.2)'
@@ -1823,9 +1833,12 @@ function renderNodeServices() {
           "></span>
           <span class="status-lbl">${isRunning ? 'Activo' : 'Apagado'}</span>
         </span>
-        <button class="btn-node-toggle btn-node-action ${isRunning ? 'btn-stop' : 'btn-deploy'}" data-id="${srv.id}">
-          ${isRunning ? 'Apagar' : 'Desplegar'}
-        </button>
+        <div style="display: flex; gap: 8px;">
+          ${isRunning ? `<button class="btn-node-view btn btn-secondary btn-sm" data-id="${srv.id}" data-port="${srv.port}" style="padding: 6px 12px; font-size: 11.5px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); color: var(--text-primary); cursor: pointer; transition: background 0.2s;">Visualizar</button>` : ''}
+          <button class="btn-node-toggle btn-node-action ${isRunning ? 'btn-stop' : 'btn-deploy'}" data-id="${srv.id}">
+            ${isRunning ? 'Apagar' : 'Desplegar'}
+          </button>
+        </div>
       </div>
     `;
     
@@ -1833,6 +1846,37 @@ function renderNodeServices() {
   });
   
   setupNodeToggleButtons();
+  setupNodeVisualizerButtons();
+}
+
+function setupNodeVisualizerButtons() {
+  const viewBtns = document.querySelectorAll('.btn-node-view');
+  viewBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      const port = btn.getAttribute('data-port');
+      const srv = nodeServices.find(s => s.id === id);
+      if (!srv) return;
+      
+      const modal = document.getElementById('modal-service-visualizer');
+      const title = document.getElementById('service-visualizer-title');
+      const iframe = document.getElementById('service-visualizer-iframe');
+      const extBtn = document.getElementById('btn-open-external');
+      
+      if (title) title.innerText = `Visualizar: ${srv.name}`;
+      
+      const serviceUrl = `http://localhost:${port}`;
+      if (iframe) iframe.src = serviceUrl;
+      
+      if (extBtn) {
+        extBtn.onclick = () => {
+          window.open(serviceUrl, '_blank');
+        };
+      }
+      
+      if (modal) modal.classList.add('active');
+    });
+  });
 }
 
 function setupNodeToggleButtons() {

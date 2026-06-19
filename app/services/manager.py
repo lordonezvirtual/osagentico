@@ -2,7 +2,19 @@ import subprocess
 import json
 import logging
 import shutil
+import os
 from typing import List, Dict, Any, Optional
+from app.infrastructure.database import get_db
+from app.services.fallbacks import get_fallback_html
+
+# Mapping from friendly user service name to GitHub repositories to clone if files are missing
+GITHUB_REPOS = {
+    "hermes-agent": "https://github.com/lordonezvirtual/osagentico.git",
+    "hermes-desktop": "https://github.com/lordonezvirtual/iothome.git",
+    "hermes-workspace": "https://github.com/lordonezvirtual/osagentico.git",
+    "openclaw": "https://github.com/hscspring/openclaw.git",
+    "n8n": "https://github.com/n8n-io/n8n.git",
+}
 
 logger = logging.getLogger("service_manager")
 
@@ -88,21 +100,6 @@ SERVICE_METADATA = {
 
 class ServiceManager:
     def __init__(self):
-        # In-memory status fallback for local-first testing when Docker is unavailable
-        self.fallback_statuses = {
-            "hermes-agent": "inactive",
-            "hermes-desktop": "active",  # Seed matching user's screenshot
-            "hermes-workspace": "inactive",
-            "n8n": "inactive",
-            "openclaw": "inactive",
-            "crewai": "inactive",
-            "autogpt": "inactive",
-            "langflow": "inactive",
-            "autogen": "inactive",
-            "langgraph": "inactive",
-            "devika": "inactive",
-            "chatdev": "inactive"
-        }
         self.docker_available = shutil.which("docker") is not None
 
     def _run_compose_cmd(self, args: List[str]) -> tuple[bool, str]:
@@ -126,25 +123,72 @@ class ServiceManager:
         except Exception as e:
             return False, str(e)
 
-    def list_services(self) -> List[Dict[str, Any]]:
-        """Lists all services with status, port, and description details."""
-        states = {}
+    async def _ensure_service_files(self, name: str) -> None:
+        """Checks if local folder is empty, and clones or generates fallback files."""
+        dir_suffix = name.replace("hermes-", "")
+        target_dir = os.path.abspath(os.path.join(".", "data", dir_suffix))
         
-        # Try getting states from docker compose ps
+        if name in ["n8n", "postgres", "ollama"]:
+            return
+
+        os.makedirs(target_dir, exist_ok=True)
+        
+        files = [f for f in os.listdir(target_dir) if not f.startswith(".")]
+        if not files:
+            logger.info(f"Target directory {target_dir} for service '{name}' is empty. Cloner triggered.")
+            repo_url = GITHUB_REPOS.get(name)
+            cloned = False
+            
+            if repo_url:
+                try:
+                    cmd = ["git", "clone", repo_url, "."]
+                    result = subprocess.run(
+                        cmd,
+                        cwd=target_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    if result.returncode == 0:
+                        logger.info(f"Successfully cloned {repo_url} into {target_dir}")
+                        cloned = True
+                    else:
+                        logger.warning(f"Git clone failed: {result.stderr}")
+                except Exception as e:
+                    logger.warning(f"Error during git clone: {e}")
+            
+            if not cloned:
+                logger.info(f"Writing high-fidelity fallback HTML for service '{name}'")
+                fallback_html = get_fallback_html(
+                    name, 
+                    SERVICE_METADATA.get(name, {}).get("name", name),
+                    SERVICE_METADATA.get(name, {}).get("port", 80)
+                )
+                try:
+                    with open(os.path.join(target_dir, "index.html"), "w", encoding="utf-8") as f:
+                        f.write(fallback_html)
+                    logger.info(f"Successfully wrote fallback index.html to {target_dir}")
+                except Exception as e:
+                    logger.error(f"Failed to write fallback index.html: {e}")
+
+    async def list_services(self) -> List[Dict[str, Any]]:
+        """Lists all services with status, port, and description details."""
+        db = get_db()
+        db_services = await db.list_services()
+        db_statuses = {srv["id"]: srv["status"] for srv in db_services}
+        
+        docker_statuses = {}
         success, output = self._run_compose_cmd(["ps", "-a", "--format", "json"])
         if success and output.strip():
             try:
-                # Docker compose can output single JSON array or multi-line JSON objects
                 lines = output.strip().split("\n")
                 for line in lines:
                     if not line:
                         continue
                     container_data = json.loads(line)
-                    # Check service name
                     service_key = container_data.get("Service")
                     state = container_data.get("State", "inactive").lower()
                     
-                    # Map states (running -> active, exited/created -> inactive)
                     mapped_state = "inactive"
                     if state in ["running", "up"]:
                         mapped_state = "active"
@@ -153,51 +197,50 @@ class ServiceManager:
                         
                     for friendly_name, comp_name in SERVICE_MAPPING.items():
                         if comp_name == service_key:
-                            states[friendly_name] = mapped_state
+                            docker_statuses[friendly_name] = mapped_state
             except Exception as e:
                 logger.warning(f"Error parsing docker compose ps JSON output: {e}")
 
-        # Fallback to local state if Docker query failed or empty
-        for key in SERVICE_MAPPING.keys():
-            if key not in states:
-                states[key] = self.fallback_statuses[key]
-
-        # Assemble final metadata
         services_list = []
         for key, meta in SERVICE_METADATA.items():
+            status = docker_statuses.get(key, db_statuses.get(key, "inactive"))
+            
+            if db_statuses.get(key) != status:
+                await db.save_service(key, status)
+                
             services_list.append({
                 "id": key,
                 "name": meta["name"],
                 "description": meta["description"],
                 "port": meta["port"],
-                "status": states.get(key, "inactive")  # active, inactive, starting
+                "status": status
             })
         return services_list
 
-    def deploy_service(self, name: str) -> Dict[str, Any]:
+    async def deploy_service(self, name: str) -> Dict[str, Any]:
         """Starts/turns on a service."""
         if name not in SERVICE_MAPPING:
             return {"success": False, "message": f"Service '{name}' is not registered."}
+
+        await self._ensure_service_files(name)
 
         compose_service = SERVICE_MAPPING[name]
         logger.info(f"Deploying service: {name} ({compose_service})")
 
         success, error_msg = self._run_compose_cmd(["start", compose_service])
-        
         if not success:
-            # If starting failed (maybe because it's not created), try running 'up -d'
             success, error_msg = self._run_compose_cmd(["up", "-d", compose_service])
 
+        db = get_db()
+        await db.save_service(name, "active")
+
         if success:
-            self.fallback_statuses[name] = "active"
             return {"success": True, "message": f"Service '{name}' deployed successfully."}
         else:
-            logger.warning(f"Docker deployment failed, using local fallback: {error_msg}")
-            # Mock success for testing/fallback if Docker CLI isn't working
-            self.fallback_statuses[name] = "active"
+            logger.warning(f"Docker deployment failed, using database/local fallback: {error_msg}")
             return {"success": True, "message": f"Service '{name}' deployed locally (mock fallback)."}
 
-    def shutdown_service(self, name: str) -> Dict[str, Any]:
+    async def shutdown_service(self, name: str) -> Dict[str, Any]:
         """Stops/turns off a service."""
         if name not in SERVICE_MAPPING:
             return {"success": False, "message": f"Service '{name}' is not registered."}
@@ -207,38 +250,43 @@ class ServiceManager:
 
         success, error_msg = self._run_compose_cmd(["stop", compose_service])
 
+        db = get_db()
+        await db.save_service(name, "inactive")
+
         if success:
-            self.fallback_statuses[name] = "inactive"
             return {"success": True, "message": f"Service '{name}' shut down successfully."}
         else:
-            logger.warning(f"Docker shutdown failed, using local fallback: {error_msg}")
-            self.fallback_statuses[name] = "inactive"
+            logger.warning(f"Docker shutdown failed, using database/local fallback: {error_msg}")
             return {"success": True, "message": f"Service '{name}' shut down locally (mock fallback)."}
 
-    def deploy_all(self) -> Dict[str, Any]:
+    async def deploy_all(self) -> Dict[str, Any]:
         """Starts all defined compose services (Prender Todo)."""
         logger.info("Deploying all services...")
+        
+        for key in SERVICE_MAPPING.keys():
+            await self._ensure_service_files(key)
+            
         success, error_msg = self._run_compose_cmd(["start"])
         if not success:
             success, error_msg = self._run_compose_cmd(["up", "-d"])
 
-        # Update fallbacks
-        for key in self.fallback_statuses:
-            self.fallback_statuses[key] = "active"
+        db = get_db()
+        for key in SERVICE_MAPPING.keys():
+            await db.save_service(key, "active")
 
         return {
             "success": True, 
             "message": "All services deployed successfully." if success else "All services deployed locally (mock fallback)."
         }
 
-    def shutdown_all(self) -> Dict[str, Any]:
+    async def shutdown_all(self) -> Dict[str, Any]:
         """Stops all defined compose services (Apagar Todo)."""
         logger.info("Shutting down all services...")
         success, error_msg = self._run_compose_cmd(["stop"])
         
-        # Update fallbacks
-        for key in self.fallback_statuses:
-            self.fallback_statuses[key] = "inactive"
+        db = get_db()
+        for key in SERVICE_MAPPING.keys():
+            await db.save_service(key, "inactive")
 
         return {
             "success": True, 

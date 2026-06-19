@@ -28,3 +28,7 @@ yarn-error.log*
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Runtime / persistent data
+data/
+

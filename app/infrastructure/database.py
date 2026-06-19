@@ -52,6 +52,13 @@ class BaseDatabase(ABC):
     @abstractmethod
     async def list_logs(self, session_id: str) -> List[Log]: pass
 
+    @abstractmethod
+    async def list_services(self) -> List[Dict[str, Any]]: pass
+    @abstractmethod
+    async def get_service(self, service_id: str) -> Optional[Dict[str, Any]]: pass
+    @abstractmethod
+    async def save_service(self, service_id: str, status: str) -> None: pass
+
 
 class SQLiteDatabase(BaseDatabase):
     def __init__(self, db_url: str):
@@ -121,12 +128,27 @@ class SQLiteDatabase(BaseDatabase):
                     timestamp TEXT
                 )
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS services (
+                    id TEXT PRIMARY KEY,
+                    name TEXT,
+                    description TEXT,
+                    port INTEGER,
+                    status TEXT,
+                    updated_at TEXT
+                )
+            """)
             conn.commit()
 
             # Seed default tools if empty
             cursor.execute("SELECT COUNT(*) FROM tools")
             if cursor.fetchone()[0] == 0:
                 self._seed_default_tools(conn)
+
+            # Seed default services if empty
+            cursor.execute("SELECT COUNT(*) FROM services")
+            if cursor.fetchone()[0] == 0:
+                self._seed_default_services(conn)
 
     def _seed_default_tools(self, conn):
         default_tools = [
@@ -287,6 +309,45 @@ class SQLiteDatabase(BaseDatabase):
                 ) for row in rows
             ]
 
+    def _seed_default_services(self, conn):
+        default_services = [
+            ("hermes-agent", "Hermes Agent", "Núcleo autónomo de toma de decisiones vía API y CLI.", 8081, "inactive", datetime.utcnow().isoformat()),
+            ("hermes-desktop", "Hermes Desktop", "Entorno de ejecución local con acceso a sistema de archivos y terminal.", 8082, "active", datetime.utcnow().isoformat()),
+            ("hermes-workspace", "Hermes Workspace", "Espacio de trabajo compartido en la nube con repositorios y directorios aislados.", 8083, "inactive", datetime.utcnow().isoformat()),
+            ("n8n", "n8n Automation", "Automatización de flujos de trabajo conectando nodos y APIs de terceros.", 5678, "inactive", datetime.utcnow().isoformat()),
+            ("openclaw", "OpenClaw / OpenHands", "Agente desarrollador autónomo que escribe código y ejecuta comandos en sandbox.", 8080, "inactive", datetime.utcnow().isoformat()),
+            ("crewai", "CrewAI Framework", "Orquestador de equipos de agentes AI colaborativos con roles definidos.", 8010, "inactive", datetime.utcnow().isoformat()),
+            ("autogpt", "AutoGPT Node", "Agente autónomo de bucle continuo para resolución de objetivos complejos.", 8012, "inactive", datetime.utcnow().isoformat()),
+            ("langflow", "Langflow UI", "Constructor visual de flujos de trabajo e interfaces gráficas RAG.", 7860, "inactive", datetime.utcnow().isoformat()),
+            ("autogen", "Microsoft AutoGen", "Framework multi-agente para configurar flujos conversacionales de resolución de tareas.", 8015, "inactive", datetime.utcnow().isoformat()),
+            ("langgraph", "LangGraph Nodes", "Orquestación cíclica y persistente de agentes complejos basada en grafos.", 8016, "inactive", datetime.utcnow().isoformat()),
+            ("devika", "Devika Agent", "Asistente de codificación y desarrollo de software autónomo open-source.", 8018, "inactive", datetime.utcnow().isoformat()),
+            ("chatdev", "ChatDev Virtual", "Entorno virtual simulado para creación cooperativa de software mediante agentes.", 8020, "inactive", datetime.utcnow().isoformat())
+        ]
+        conn.executemany(
+            "INSERT INTO services (id, name, description, port, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            default_services
+        )
+        conn.commit()
+
+    async def list_services(self) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            rows = conn.execute("SELECT * FROM services").fetchall()
+            return [dict(row) for row in rows]
+
+    async def get_service(self, service_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM services WHERE id = ?", (service_id,)).fetchone()
+            return dict(row) if row else None
+
+    async def save_service(self, service_id: str, status: str) -> None:
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE services SET status = ?, updated_at = ? WHERE id = ?",
+                (status, datetime.utcnow().isoformat(), service_id)
+            )
+            conn.commit()
+
 
 class FirestoreDatabase(BaseDatabase):
     def __init__(self, project_id: Optional[str] = None, credentials_path: Optional[str] = None):
@@ -352,6 +413,39 @@ class FirestoreDatabase(BaseDatabase):
     async def list_logs(self, session_id: str) -> List[Log]:
         docs = self.db.collection("sessions").document(session_id).collection("logs").order_by("timestamp").stream()
         return [Log(**doc.to_dict()) for doc in docs]
+
+    async def list_services(self) -> List[Dict[str, Any]]:
+        docs = list(self.db.collection("services").stream())
+        if not docs:
+            # Seed default services
+            default_services = [
+                {"id": "hermes-agent", "name": "Hermes Agent", "description": "Núcleo autónomo de toma de decisiones vía API y CLI.", "port": 8081, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "hermes-desktop", "name": "Hermes Desktop", "description": "Entorno de ejecución local con acceso a sistema de archivos y terminal.", "port": 8082, "status": "active", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "hermes-workspace", "name": "Hermes Workspace", "description": "Espacio de trabajo compartido en la nube con repositorios y directorios aislados.", "port": 8083, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "n8n", "name": "n8n Automation", "description": "Automatización de flujos de trabajo conectando nodos y APIs de terceros.", "port": 5678, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "openclaw", "name": "OpenClaw / OpenHands", "description": "Agente desarrollador autónomo que escribe código y ejecuta comandos en sandbox.", "port": 8080, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "crewai", "name": "CrewAI Framework", "description": "Orquestador de equipos de agentes AI colaborativos con roles definidos.", "port": 8010, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "autogpt", "name": "AutoGPT Node", "description": "Agente autónomo de bucle continuo para resolución de objetivos complejos.", "port": 8012, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "langflow", "name": "Langflow UI", "description": "Constructor visual de flujos de trabajo e interfaces gráficas RAG.", "port": 7860, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "autogen", "name": "Microsoft AutoGen", "description": "Framework multi-agente para configurar flujos conversacionales de resolución de tareas.", "port": 8015, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "langgraph", "name": "LangGraph Nodes", "description": "Orquestación cíclica y persistente de agentes complejos basada en grafos.", "port": 8016, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "devika", "name": "Devika Agent", "description": "Asistente de codificación y desarrollo de software autónomo open-source.", "port": 8018, "status": "inactive", "updated_at": datetime.utcnow().isoformat()},
+                {"id": "chatdev", "name": "ChatDev Virtual", "description": "Entorno virtual simulado para creación cooperativa de software mediante agentes.", "port": 8020, "status": "inactive", "updated_at": datetime.utcnow().isoformat()}
+            ]
+            for srv in default_services:
+                self.db.collection("services").document(srv["id"]).set(srv)
+            docs = list(self.db.collection("services").stream())
+        return [doc.to_dict() for doc in docs]
+
+    async def get_service(self, service_id: str) -> Optional[Dict[str, Any]]:
+        doc = self.db.collection("services").document(service_id).get()
+        return doc.to_dict() if doc.exists else None
+
+    async def save_service(self, service_id: str, status: str) -> None:
+        self.db.collection("services").document(service_id).update({
+            "status": status,
+            "updated_at": datetime.utcnow().isoformat()
+        })
 
 
 # Singleton instance selector based on DB_MODE
@@ -424,12 +518,27 @@ class PostgresDatabase(BaseDatabase):
                         timestamp VARCHAR(255)
                     )
                 """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS services (
+                        id VARCHAR(255) PRIMARY KEY,
+                        name VARCHAR(255),
+                        description TEXT,
+                        port INTEGER,
+                        status VARCHAR(255),
+                        updated_at VARCHAR(255)
+                    )
+                """)
                 conn.commit()
 
                 # Seed default tools if empty
                 cursor.execute("SELECT COUNT(*) FROM tools")
                 if cursor.fetchone()[0] == 0:
                     self._seed_default_tools(conn)
+
+                # Seed default services if empty
+                cursor.execute("SELECT COUNT(*) FROM services")
+                if cursor.fetchone()[0] == 0:
+                    self._seed_default_services(conn)
 
     def _seed_default_tools(self, conn):
         default_tools = [
@@ -654,6 +763,56 @@ class PostgresDatabase(BaseDatabase):
                         timestamp=datetime.fromisoformat(row["timestamp"])
                     ) for row in rows
                 ]
+
+    def _seed_default_services(self, conn):
+        default_services = [
+            ("hermes-agent", "Hermes Agent", "Núcleo autónomo de toma de decisiones vía API y CLI.", 8081, "inactive", datetime.utcnow().isoformat()),
+            ("hermes-desktop", "Hermes Desktop", "Entorno de ejecución local con acceso a sistema de archivos y terminal.", 8082, "active", datetime.utcnow().isoformat()),
+            ("hermes-workspace", "Hermes Workspace", "Espacio de trabajo compartido en la nube con repositorios y directorios aislados.", 8083, "inactive", datetime.utcnow().isoformat()),
+            ("n8n", "n8n Automation", "Automatización de flujos de trabajo conectando nodos y APIs de terceros.", 5678, "inactive", datetime.utcnow().isoformat()),
+            ("openclaw", "OpenClaw / OpenHands", "Agente desarrollador autónomo que escribe código y ejecuta comandos en sandbox.", 8080, "inactive", datetime.utcnow().isoformat()),
+            ("crewai", "CrewAI Framework", "Orquestador de equipos de agentes AI colaborativos con roles definidos.", 8010, "inactive", datetime.utcnow().isoformat()),
+            ("autogpt", "AutoGPT Node", "Agente autónomo de bucle continuo para resolución de objetivos complejos.", 8012, "inactive", datetime.utcnow().isoformat()),
+            ("langflow", "Langflow UI", "Constructor visual de flujos de trabajo e interfaces gráficas RAG.", 7860, "inactive", datetime.utcnow().isoformat()),
+            ("autogen", "Microsoft AutoGen", "Framework multi-agente para configurar flujos conversacionales de resolución de tareas.", 8015, "inactive", datetime.utcnow().isoformat()),
+            ("langgraph", "LangGraph Nodes", "Orquestación cíclica y persistente de agentes complejos basada en grafos.", 8016, "inactive", datetime.utcnow().isoformat()),
+            ("devika", "Devika Agent", "Asistente de codificación y desarrollo de software autónomo open-source.", 8018, "inactive", datetime.utcnow().isoformat()),
+            ("chatdev", "ChatDev Virtual", "Entorno virtual simulado para creación cooperativa de software mediante agentes.", 8020, "inactive", datetime.utcnow().isoformat())
+        ]
+        with conn.cursor() as cursor:
+            for s_id, name, desc, port, status, updated in default_services:
+                cursor.execute(
+                    """
+                    INSERT INTO services (id, name, description, port, status, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (s_id, name, desc, port, status, updated)
+                )
+            conn.commit()
+
+    async def list_services(self) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                cursor.execute("SELECT * FROM services")
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    async def get_service(self, service_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                cursor.execute("SELECT * FROM services WHERE id = %s", (service_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+
+    async def save_service(self, service_id: str, status: str) -> None:
+        with self._get_conn() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE services SET status = %s, updated_at = %s WHERE id = %s",
+                    (status, datetime.utcnow().isoformat(), service_id)
+                )
+                conn.commit()
 
 def get_db() -> BaseDatabase:
     global _db_instance
